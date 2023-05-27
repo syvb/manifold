@@ -1059,6 +1059,23 @@ create policy "public read" on stats for
 select
   using (true);
 
+create table if not exists
+  reports (
+    id text not null primary key default uuid_generate_v4 (),
+    user_id text,
+    created_time timestamp not null default now(),
+    content_id text not null,
+    content_owner_id text not null,
+    parent_id text,
+    parent_type text,
+    report_description text,
+    content_type text,
+  );
+
+alter table reports enable row level security;
+
+create policy "public write" on reports for insert using (true);
+
 begin;
 
 drop publication if exists supabase_realtime;

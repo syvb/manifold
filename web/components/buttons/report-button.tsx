@@ -8,10 +8,9 @@ import React, { useState } from 'react'
 import { Col } from 'web/components/layout/col'
 import { Title } from 'web/components/widgets/title'
 import { capitalize } from 'lodash'
-import { collection, doc, setDoc } from 'firebase/firestore'
 import { Report } from 'common/report'
-import { db } from 'web/lib/firebase/init'
 import { removeUndefinedProps } from 'common/util/object'
+import { db } from 'web/lib/supabase/db'
 
 export function ReportButton(props: {
   report: Omit<Report, 'id' | 'createdTime' | 'userId'>
@@ -56,20 +55,17 @@ export const reportContent = async (
     contentId,
     description,
   } = report
-  const reportDoc = doc(collection(db, 'reports'))
-  await setDoc(
-    reportDoc,
+
+  db.from('reports').insert(
     removeUndefinedProps({
-      id: reportDoc.id,
-      userId: currentUserId,
-      createdTime: Date.now(),
-      contentId,
-      contentOwnerId,
-      parentId,
-      description,
-      contentType,
-      parentType,
-    }) as Report
+      user_id: currentUserId,
+      content_id: contentId,
+      content_owner_id: contentOwnerId,
+      parent_id: parentId,
+      report_description: description,
+      content_type: contentType,
+      parent_type: parentType,
+    })
   )
 }
 

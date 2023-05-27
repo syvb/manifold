@@ -1,9 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { ApiError, ValidationError } from 'web/pages/api/v0/_types'
 import { applyCorsHeaders, CORS_UNRESTRICTED } from 'web/lib/api/cors'
-import { collection, getDocs, query } from 'firebase/firestore'
-import { db } from 'web/lib/firebase/init'
-import { Report } from 'common/report'
 import { contractUrl } from 'common/contract'
 import { filterDefined } from 'common/util/array'
 import {
@@ -16,6 +13,9 @@ import { getPost } from 'web/lib/supabase/post'
 import { richTextToString } from 'common/util/parse'
 import { getUser } from 'web/lib/firebase/users'
 import { getContract } from 'web/lib/supabase/contracts'
+import { run } from 'common/supabase/utils'
+import { db } from 'web/lib/supabase/db'
+
 type LiteReport = {
   reportedById: string
   slug: string
@@ -30,30 +30,32 @@ export default async function handler(
   res: NextApiResponse<LiteReport[] | ValidationError | ApiError>
 ) {
   await applyCorsHeaders(req, res, CORS_UNRESTRICTED)
-  const reportsQuery = await getDocs(query(collection(db, 'reports')))
-  const mostRecentReports = reportsQuery.docs
-    .map((doc) => doc.data() as Report)
-    .sort((a, b) => b.createdTime - a.createdTime)
-    .slice(0, 100)
+  const { data: reports } = await run(
+    db
+      .from('reports')
+      .select()
+      .order('created_time', { ascending: false } as any)
+      .limit(100)
+  )
 
   const liteReports: LiteReport[] = filterDefined(
     await Promise.all(
-      mostRecentReports.map(async (report) => {
+      reports.map(async (report) => {
         const {
-          contentId,
-          contentType,
-          contentOwnerId,
-          parentType,
-          parentId,
-          userId,
+          content_id,
+          content_type,
+          content_owner_id,
+          parent_type,
+          parent_id,
+          user_id,
           id,
-          description,
+          report_description,
         } = report
 
         let partialReport: { slug: string; text: string } | null = null
         // Reported contract
-        if (contentType === 'contract') {
-          const contract = await getContract(contentId)
+        if (content_type === 'contract') {
+          const contract = await getContract(content_id)
           partialReport = contract
             ? {
                 slug: contractUrl(contract),
@@ -62,14 +64,14 @@ export default async function handler(
             : null
           // Reported comment on a contract
         } else if (
-          contentType === 'comment' &&
-          parentType === 'contract' &&
-          parentId
+          content_type === 'comment' &&
+          parent_type === 'contract' &&
+          parent_id
         ) {
-          const contract = await getContract(parentId)
+          const contract = await getContract(parent_id)
           if (contract) {
             const comments = (await listAllComments(contract.id)).filter(
-              (comment) => comment.id === contentId
+              (comment) => comment.id === content_id
             )
             const comment = comments[0]
             partialReport =
@@ -84,14 +86,14 @@ export default async function handler(
           }
           // Reported comment on a post
         } else if (
-          contentType === 'comment' &&
-          parentType === 'post' &&
-          parentId
+          content_type === 'comment' &&
+          parent_type === 'post' &&
+          parent_id
         ) {
-          const post = await getPost(parentId)
+          const post = await getPost(parent_id)
           if (post) {
             const comments = (await listAllCommentsOnPost(post.id)).filter(
-              (comment) => comment.id === contentId
+              (comment) => comment.id === content_id
             )
             partialReport =
               comments.length > 0
@@ -105,8 +107,8 @@ export default async function handler(
                 : null
           }
           // Reported a user, probably should add a field as to why they were reported
-        } else if (contentType === 'user') {
-          const reportedUser = await getUser(contentId)
+        } else if (content_type === 'user') {
+          const reportedUser = await getUser(content_id)
           partialReport = {
             slug: `https://${ENV_CONFIG.domain}/${reportedUser.username}`,
             text: reportedUser.name,
@@ -115,10 +117,10 @@ export default async function handler(
         return partialReport
           ? {
               ...partialReport,
-              reasonsDescription: description ?? '',
-              contentOwnerId,
+              reasonsDescription: report_description ?? '',
+              contentOwnerId: content_owner_id,
               id,
-              reportedById: userId,
+              reportedById: user_id,
             }
           : null
       })
